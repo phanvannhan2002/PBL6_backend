@@ -13,6 +13,8 @@ const signUp = async (req, res, next) => {
         tlds: { allow: ["com", "net"] },
       })
       .required(),
+    gender: Joi.string().valid("male", "female").required(),
+    dateOfBirth: Joi.date().required()
   }).unknown(false);
   try {
     await signUpSchema.validateAsync(req.body, {abortEarly: false});
@@ -22,4 +24,20 @@ const signUp = async (req, res, next) => {
   }
 };
 
-module.exports = { signUp };
+const updateInformationUser = async(req, res, next) =>{
+  const updateInformationUserSchema = Joi.object({
+    username: Joi.string().optional(),
+    password: Joi.string()
+      .pattern(new RegExp("^[a-zA-Z0-9]{3,30}$"))
+      .optional(),
+    dateOfBirth: Joi.date().optional()
+  }).unknown(false)
+  try {
+    await updateInformationUserSchema.validateAsync(req.body, {abortEarly: false});
+    return next();
+  } catch (error) {
+    next(new UnProcessableEntityError(error.details.map((err) =>  err.message)));
+  }
+}
+
+module.exports = { signUp, updateInformationUser };

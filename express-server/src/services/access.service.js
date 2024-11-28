@@ -18,31 +18,34 @@ const TemplateService = require("./template.service");
 require("dotenv").config();
 
 class AcessService {
-  static async signUp({ email, username, password }) {
-    const holderEmail = await UserRepository.findUserByEmail(email);
+  static async signUp({ email, username, password, gender, dateOfBirth }) {
+    const [holderEmail] = await UserRepository.findUserByEmail({ email });
     if (holderEmail) {
       throw new BadRequestError("Email already in use");
     }
-    const holderUsername = await UserRepository.findUserByUsername(username);
-    if (holderUsername) {
-      throw new BadRequestError("Username already in use");
-    }
     const hashPassword = await bcrypt.hash(password, 10);
+    const avatarDefault =
+      gender === "male"
+        ? process.env.AVATAR_MALE_DEFAULT
+        : process.env.AVATAR_FEMALE_DEFAULT;
     const newUser = await UserRepository.createUser({
       email,
       username,
       password: hashPassword,
+      gender,
+      dateOfBirth,
+      avatar: avatarDefault,
     });
     RedisService.setCachedData({
       key: `user:${newUser._id}`,
       data: newUser,
       tlt: 24 * 60 * 60,
     });
-    return getInforData(newUser, ["user_id", "email", "username"]);
+    return getInforData(newUser, ["_id", "email", "username"]);
   }
 
   static async login({ email, password }) {
-    const [holder] = await UserRepository.findUserByEmail(email);
+    const [holder] = await UserRepository.findUserByEmail({ email });
     if (!holder) {
       throw new BadRequestError("Invalid email or password");
     }
@@ -58,11 +61,14 @@ class AcessService {
     let accessToken;
     if (!refreshToken) {
       refreshToken = createRefreshToken(
-        { userId: user_id, email },
+        { userId: user_id, email, role: holder.role },
         refreshTokenKey
       );
     }
-    accessToken = createAccessToken({ userId: user_id, email }, accessTokenKey);
+    accessToken = createAccessToken(
+      { userId: user_id, email, role: holder.role },
+      accessTokenKey
+    );
     // save refreshToken to redis
     RedisService.setRefreshToken({
       userId: user_id,
@@ -70,7 +76,7 @@ class AcessService {
       exp: process.env.REFRESH_TOKEN_EXPIRY,
     });
     return {
-      user: getInforData(holder, ["user_id", "email"]),
+      user: getInforData(holder, ["_id", "email", "avatar", "username"]),
       token: {
         accessToken: accessToken,
         refreshToken: refreshToken,
@@ -140,7 +146,7 @@ class AcessService {
       throw new BadRequestError("Invalid token");
     }
     const accessToken = createAccessToken(
-      { userId, username: decode.username },
+      { userId, username: decode.username,  role: decode.role},
       process.env.ACCESS_TOKEN_SECRET
     );
     return { accessToken };
@@ -162,21 +168,26 @@ class AcessService {
     };
     const content = replacePlaceHolder(template, params);
     console.log(content);
-    await EmailService.sendEmailResetPassword(email, undefined, undefined, content);
+    await EmailService.sendEmailResetPassword(
+      email,
+      undefined,
+      undefined,
+      content
+    );
   }
 
-  static async resetPassword({token, newPassword, repeatPassword}) {
+  static async resetPassword({ token, newPassword, repeatPassword }) {
     const decode = verifyToken(token, process.env.RESETPASSWORD_SECRET);
-    if(!decode) {
+    if (!decode) {
       throw new BadRequestError("Invalid token");
     }
     const email = decode.email;
-    const holder = await UserRepository.findUserByEmail({email});
-    if(!holder) {
+    const holder = await UserRepository.findUserByEmail({ email });
+    if (!holder) {
       throw new BadRequestError("Invalid request");
     }
     const hashPassword = await bcrypt.hash(password, 10);
-    UserRepository.updateUser(holder._id, {password: hashPassword});
+    UserRepository.updateUser(holder._id, { password: hashPassword });
     if (newPassword !== repeatPassword) {
       throw new BadRequestError("Password does not match");
     }

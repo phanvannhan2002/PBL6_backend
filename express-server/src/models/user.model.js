@@ -1,10 +1,10 @@
 const {Schema, model} = require('mongoose');
+const {generateSignedUrl} = require('../utils/index');
 
 const userSchema = new Schema({
     username: {
         type: String,
         required: true,
-        unique: true,
         trim: true,
     },
     email: {
@@ -17,6 +17,15 @@ const userSchema = new Schema({
         type: String,
         required: true,
         minlength: 6,
+    },
+    role: {
+        type: String,
+        enum: ["admin", "user"],
+        default: "user"
+    },
+    gender: {
+        type: String,
+        enum: ["male", "female"]
     },
     avatar: {
         type: String,
@@ -31,6 +40,20 @@ const userSchema = new Schema({
     passwordChangeAt: {
         type: Date,
     }
+});
+
+userSchema.post(['find', 'findOne'], async function (docs, next) {
+    if (!docs) return next();
+    if (Array.isArray(docs)) {
+        await Promise.all(
+            docs.map(async (doc) => {
+                doc.avatar = await generateSignedUrl(doc.avatar);
+            })
+        );
+    } else {
+        docs.avatar = await generateSignedUrl(docs.avatar);
+    }
+    next();
 });
 
 const User = model('User', userSchema);

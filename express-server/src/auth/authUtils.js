@@ -1,6 +1,6 @@
 "use strict";
 const jwt = require("jsonwebtoken");
-const { AuthFailureError, BadRequestError } = require("../core/error.response");
+const { AuthFailureError, BadRequestError, ForbiddenRequestError } = require("../core/error.response");
 const CatchAsync = require("../utils/CatchAsync");
 const RedisService = require("../services/redis.service");
 const UserRepository = require("../repositories/user.repo");
@@ -51,16 +51,10 @@ const authentication = CatchAsync(async (req, res, next) => {
     throw new AuthFailureError("Invalid request");
   }
   const decoded = verifyToken(accessToken, process.env.ACCESS_TOKEN_SECRET);
-  if (decoded.userId !== clientId) {
+  if (!decoded || decoded.userId !== clientId) {
     throw new AuthFailureError("Invalid request");
   }
-  // get user from cache
-  const key = `user:${decoded.userId}`;
-  const callback = () => {
-    return UserRepository.getUserById(decoded.userId);
-  };
-  RedisService.timeToLive = 24 * 60 * 60; // 1 day
-  const user = await RedisService.getCachedData({ key, callback });
+  const user = await UserRepository.getUserById({ user_id: decoded.userId });
   if (!user) {
     throw new AuthFailureError("Invalid request");
   }
@@ -71,10 +65,29 @@ const authentication = CatchAsync(async (req, res, next) => {
   next();
 });
 
+const checkUserOwnership = (req, res, next) => {
+  if(req.params.user_id !== req.user._id) {
+    throw new ForbiddenRequestError("not permission!");
+  }
+  next();
+}
+
+const restrictTo = (roles) => {
+  return (req, res, next) => {
+    const userRole = req.user.role;
+    if(roles.includes(userRole)) {
+      return next();
+    }
+    throw new ForbiddenRequestError("not permission");
+  };
+};
+
 module.exports = {
   createRefreshToken,
   createAccessToken,
   verifyToken,
   authentication,
   createTokenResetPassword,
+  checkUserOwnership,
+  restrictTo
 };
